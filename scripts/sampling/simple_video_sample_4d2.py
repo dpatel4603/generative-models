@@ -75,6 +75,45 @@ sv4d2_configs = {
     },
 }
 
+def orbit_pose(az_deg: float, el_deg: float, radius: float = 1.0) -> np.ndarray:
+    """Return a 4×4 world→camera OpenGL matrix for a turn‑table orbit.
+
+    Parameters
+    ----------
+    az_deg : float
+        Azimuth in degrees (0° points toward +Z, CCW when looking from +Y).
+    el_deg : float
+        Elevation in degrees (0° = horizontal ring; positive looks down).
+    radius : float, optional
+        Distance of camera centre from origin.
+
+    Returns
+    -------
+    np.ndarray (4,4)
+    """
+    az = math.radians(az_deg)
+    pol = math.radians(90.0 - el_deg)  # polar angle θ = 0 at +Y
+
+    # Camera centre in world coordinates (right‑hand, Y up, Z forward)
+    cx = radius * math.sin(pol) * math.sin(az)
+    cy = radius * math.cos(pol)
+    cz = radius * math.sin(pol) * math.cos(az)
+    C = np.array([cx, cy, cz])
+
+    forward = -C / np.linalg.norm(C)  # OpenGL convention (‑Z forward)
+    up_world = np.array([0.0, 1.0, 0.0])
+    right = np.cross(up_world, forward)
+    right /= np.linalg.norm(right)
+    up = np.cross(forward, right)
+
+    R = np.stack([right, up, forward])  # 3×3
+    T = -R @ C                          # 3×1
+
+    P = np.eye(4, dtype=np.float32)
+    P[:3, :3] = R
+    P[:3, 3] = T
+    return P
+
 
 def sample(
     input_path: str = "assets/sv4d_videos/camel.gif",  # Can either be image file or folder with image files
@@ -160,6 +199,14 @@ def sample(
     azimuths_rad = np.array(
         [np.deg2rad((a - azimuths_deg[-1]) % 360) for a in azimuths_deg]
     )
+
+    import json, os
+    
+    matrices = [orbit_pose(a_deg, e_deg).tolist()
+                for a_deg, e_deg in zip(azimuths_deg, elevations_deg)]
+    # write them out next to your videos
+    with open(os.path.join(output_folder, "extrinsic_matrices.json"), "w") as f:
+        json.dump(matrices, f, indent=2)
 
     # Initialize image matrix
     img_matrix = [[None] * n_views for _ in range(n_frames)]
